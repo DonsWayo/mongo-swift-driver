@@ -36,6 +36,33 @@ extension NSCondition {
     }
 }
 
+extension MongoClientOptions.ServerAPI.Version {
+    fileprivate var mongocAPIVersion: mongoc_server_api_version_t {
+        switch self {
+        case .v1:
+            return MONGOC_SERVER_API_V1
+        default:
+            fatalError("Encountered unexpected API version \(self)")
+        }
+    }
+}
+extension MongoClientOptions.ServerAPI {
+    fileprivate func withMongocServerAPI<T>(_ body: (OpaquePointer) throws -> T) rethrows -> T {
+        guard let api = mongoc_server_api_new(self.version.mongocAPIVersion) else {
+            fatalError("Failed to initialize mongoc_server_api_t")
+        }
+        defer { mongoc_server_api_destroy(api) }
+
+        if let strict = self.strict {
+            mongoc_server_api_strict(api, strict)
+        }
+        if let deprecationErrors = self.deprecationErrors {
+            mongoc_server_api_deprecation_errors(api, deprecationErrors)
+        }
+        return try body(api)
+    }
+}
+
 /// A pool of one or more connections.
 internal class ConnectionPool {
     /// Represents the state of a `ConnectionPool`.
@@ -78,7 +105,7 @@ internal class ConnectionPool {
     internal static let PoolClosedError = MongoError.LogicError(message: "ConnectionPool was already closed")
 
     /// Initializes the pool using the provided `ConnectionString`.
-    internal init(from connString: ConnectionString, executor: OperationExecutor) throws {
+    internal init(from connString: ConnectionString, executor: OperationExecutor, serverAPI: MongoClientOptions.ServerAPI?) throws {
         let poolFut = executor.execute(on: nil) { () -> OpaquePointer in
             try connString.withMongocURI { uriPtr in
                 guard let pool = mongoc_client_pool_new(uriPtr) else {
@@ -87,6 +114,13 @@ internal class ConnectionPool {
 
                 guard mongoc_client_pool_set_error_api(pool, MONGOC_ERROR_API_VERSION_2) else {
                     fatalError("Could not configure error handling on client pool")
+                }
+
+                try serverAPI?.withMongocServerAPI { apiPtr in
+                    var error = bson_error_t()
+                    guard mongoc_client_pool_set_server_api(pool, apiPtr, &error) else {
+                        throw extractMongoError(error: error)
+                    }
                 }
 
                 // We always set min_heartbeat_frequency because the hard-coded default in the vendored mongoc
