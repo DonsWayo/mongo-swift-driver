@@ -3,10 +3,18 @@
 set -eou pipefail
 
 PWD=`pwd`
-LIBMONGOC_VERSION=1.17.4
-TARBALL_URL=https://github.com/mongodb/mongo-c-driver/releases/download/$LIBMONGOC_VERSION/mongo-c-driver-$LIBMONGOC_VERSION.tar.gz
-TARBALL_NAME=`basename $TARBALL_URL`
-TARBALL_DIR=`basename -s .tar.gz $TARBALL_NAME`
+# LIBMONGOC_VERSION=1.17.4
+# TARBALL_URL=https://github.com/mongodb/mongo-c-driver/releases/download/$LIBMONGOC_VERSION/mongo-c-driver-$LIBMONGOC_VERSION.tar.gz
+# TARBALL_NAME=`basename $TARBALL_URL`
+# CLONE_DIR=`basename -s .tar.gz $TARBALL_NAME`
+
+WORK_DIR=`mktemp -d`
+if [[ ! "$WORK_DIR" || ! -d "$WORK_DIR" ]]; then
+  echo "Could not create temp dir"
+  exit 1
+fi
+
+CLONE_DIR="${WORK_DIR}/mongo-c-driver"
 
 # install paths
 CLIBMONGOC_PATH=$PWD/Sources/CLibMongoC
@@ -17,16 +25,10 @@ MONGOC_PATH=$CLIBMONGOC_PATH/mongoc
 
 # source paths
 ETC_DIR=$PWD/etc
-COMMON_SRC_PATH=$TARBALL_DIR/src/common
-BSON_SRC_PATH=$TARBALL_DIR/src/libbson/src/bson
-JSONSL_SRC_PATH=$TARBALL_DIR/src/libbson/src/jsonsl
-MONGOC_SRC_PATH=$TARBALL_DIR/src/libmongoc/src/mongoc
-
-WORK_DIR=`mktemp -d`
-if [[ ! "$WORK_DIR" || ! -d "$WORK_DIR" ]]; then
-  echo "Could not create temp dir"
-  exit 1
-fi
+COMMON_SRC_PATH=$CLONE_DIR/src/common
+BSON_SRC_PATH=$CLONE_DIR/src/libbson/src/bson
+JSONSL_SRC_PATH=$CLONE_DIR/src/libbson/src/jsonsl
+MONGOC_SRC_PATH=$CLONE_DIR/src/libmongoc/src/mongoc
 
 sed="$ETC_DIR/sed.sh"
 
@@ -41,8 +43,10 @@ mkdir -p $COMMON_PATH
 mkdir -p $BSON_PATH
 mkdir -p $MONGOC_PATH
 
-echo "DOWNLOADING source tarball..."
-curl -L# -o $WORK_DIR/$TARBALL_NAME $TARBALL_URL
+# echo "DOWNLOADING source tarball..."
+# curl -L# -o $WORK_DIR/$TARBALL_NAME $TARBALL_URL
+echo "Cloning code..."
+git clone --single-branch --branch cdriver-3929 https://github.com/alcaeus/mongo-c-driver.git $CLONE_DIR
 
 # This step copies all files from the tarball into `Sources/CLibMongoC`. It takes an extra step
 # to maintain private headers in component-specific folders (`bson`, `mongoc`, `common`), and
@@ -50,7 +54,7 @@ curl -L# -o $WORK_DIR/$TARBALL_NAME $TARBALL_URL
 echo "COPYING libmongoc"
 (
   pushd $WORK_DIR
-  tar -xzf $TARBALL_NAME
+  #tar -xzf $TARBALL_NAME
 
   # common
   cp $COMMON_SRC_PATH/*.h $CLIBMONGOC_INCLUDE_PATH
