@@ -22,23 +22,25 @@
 #include "mongoc-bulk-operation-private.h"
 #include "mongoc-change-stream-private.h"
 #include "mongoc-client-private.h"
-#include "mongoc-find-and-modify-private.h"
-#include "CLibMongoC_mongoc-find-and-modify.h"
 #include "CLibMongoC_mongoc-collection.h"
 #include "mongoc-collection-private.h"
 #include "mongoc-cursor-private.h"
+#include "mongoc-database-private.h"
 #include "CLibMongoC_mongoc-error.h"
+#include "mongoc-error-private.h"
+#include "mongoc-find-and-modify-private.h"
+#include "CLibMongoC_mongoc-find-and-modify.h"
 #include "CLibMongoC_mongoc-index.h"
 #include "CLibMongoC_mongoc-log.h"
-#include "mongoc-trace-private.h"
+#include "mongoc-opts-private.h"
 #include "mongoc-read-concern-private.h"
-#include "mongoc-write-concern-private.h"
 #include "mongoc-read-prefs-private.h"
+#include "mongoc-trace-private.h"
+#include "CLibMongoC_mongoc-uri.h"
 #include "mongoc-util-private.h"
 #include "mongoc-write-command-private.h"
-#include "mongoc-opts-private.h"
 #include "mongoc-write-command-private.h"
-#include "mongoc-error-private.h"
+#include "mongoc-write-concern-private.h"
 
 #if !defined(_MSC_VER) || (_MSC_VER >= 1800)
 #include <inttypes.h>
@@ -170,7 +172,8 @@ _mongoc_collection_new (mongoc_client_t *client,
                         const char *collection,
                         const mongoc_read_prefs_t *read_prefs,
                         const mongoc_read_concern_t *read_concern,
-                        const mongoc_write_concern_t *write_concern)
+                        const mongoc_write_concern_t *write_concern,
+                        int64_t timeout_ms)
 {
    mongoc_collection_t *col;
 
@@ -198,6 +201,8 @@ _mongoc_collection_new (mongoc_client_t *client,
    col->nslen = (uint32_t) strlen (col->ns);
 
    col->gle = NULL;
+
+   col->timeout_ms = timeout_ms;
 
    RETURN (col);
 }
@@ -284,7 +289,8 @@ mongoc_collection_copy (mongoc_collection_t *collection) /* IN */
                                    collection->collection,
                                    collection->read_prefs,
                                    collection->read_concern,
-                                   collection->write_concern));
+                                   collection->write_concern,
+                                   collection->timeout_ms));
 }
 
 
@@ -3283,22 +3289,19 @@ mongoc_collection_find_and_modify_with_opts (
 
       write_concern = appended_opts.writeConcern;
    }
-
-   if (!write_concern) {
-      if (server_stream->sd->max_wire_version >=
-             WIRE_VERSION_FAM_WRITE_CONCERN &&
-          (mongoc_write_concern_is_acknowledged (collection->write_concern) ||
-           !_mongoc_client_session_in_txn (parts.assembled.session))) {
-         if (!mongoc_write_concern_is_valid (collection->write_concern)) {
-            bson_set_error (error,
-                            MONGOC_ERROR_COMMAND,
-                            MONGOC_ERROR_COMMAND_INVALID_ARG,
-                            "The write concern is invalid.");
-            GOTO (done);
-         }
-
-         write_concern = collection->write_concern;
+   /* inherit write concern from collection if not in transaction */
+   else if (server_stream->sd->max_wire_version >=
+               WIRE_VERSION_FAM_WRITE_CONCERN &&
+            !_mongoc_client_session_in_txn (parts.assembled.session)) {
+      if (!mongoc_write_concern_is_valid (collection->write_concern)) {
+         bson_set_error (error,
+                         MONGOC_ERROR_COMMAND,
+                         MONGOC_ERROR_COMMAND_INVALID_ARG,
+                         "The write concern is invalid.");
+         GOTO (done);
       }
+
+      write_concern = collection->write_concern;
    }
 
    if (appended_opts.hint.value_type) {
@@ -3513,4 +3516,32 @@ mongoc_collection_watch (const mongoc_collection_t *coll,
                          const bson_t *opts)
 {
    return _mongoc_change_stream_new_from_collection (coll, pipeline, opts);
+}
+
+bool
+mongoc_collection_set_timeout_ms (mongoc_collection_t *coll,
+                                  int64_t timeout_ms,
+                                  bson_error_t *error)
+{
+   BSON_ASSERT_PARAM (coll);
+
+   if (timeout_ms < 0) {
+      bson_set_error (error,
+                      MONGOC_ERROR_TIMEOUT,
+                      MONGOC_ERROR_TIMEOUT_INVALID,
+                      "timeoutMS must be a non-negative integer");
+      return false;
+   }
+
+   coll->timeout_ms = timeout_ms;
+
+   return true;
+}
+
+int64_t
+mongoc_collection_get_timeout_ms (const mongoc_collection_t *coll)
+{
+   BSON_ASSERT_PARAM (coll);
+
+   return coll->timeout_ms;
 }
