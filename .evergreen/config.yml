@@ -988,6 +988,14 @@ axes:
         variables:
           SSL: "nossl"
           AUTH: "noauth"
+    
+  - id: auth
+    display_name: Auth
+    values:
+      - id: auth
+        display_name: Auth
+        variables:
+          AUTH: "auth"    
 
   - id: versionedAPI
     display_name: Versioned API
@@ -1081,7 +1089,7 @@ buildvariants:
   matrix_spec:
     os-fully-featured: ubuntu-18.04
     swift-version: "5.3"
-    ssl-auth: "ssl-auth"
+    auth: "auth"
     versionedAPI: "*"
   display_name: "Versioned API ${versionedAPI} ${swift-version} ${os-fully-featured}"
   batchtime: 10080  # 7 days
