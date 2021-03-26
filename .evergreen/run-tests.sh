@@ -47,7 +47,7 @@ swift build
 set +o errexit # even if tests fail we want to parse the results, so disable errexit
 set -o pipefail # propagate error codes in the following pipes
 
-MONGODB_TOPOLOGY=${TOPOLOGY} MONGODB_URI=$MONGODB_URI swift test 2>&1 | tee ${RAW_TEST_RESULTS}
+MONGODB_TOPOLOGY=${TOPOLOGY} MONGODB_URI=$MONGODB_URI MONGODB_API_VERSION=$MONGODB_API_VERSION swift test 2>&1 | tee ${RAW_TEST_RESULTS}
 
 # save tests exit code
 EXIT_CODE=$?
